@@ -1,3 +1,71 @@
+붙여넣은 텍스트 (1).txt
+문서
+
+확인했어. 원인 찾았어.
+
+현재 App.jsx의 로그인 배경이 **backgroundSize: 'cover'**로 되어 있어서, 화면을 꽉 채우는 대신 사진의 위·아래나 좌우 일부가 잘리고 있어.
+
+딱 한 군데만 바꾸자
+
+App.jsx에서 아래 부분을 찾아.
+
+backgroundSize: 'cover',
+
+이걸 이렇게 바꿔줘.
+
+backgroundSize: 'contain',
+
+즉 최종적으로는:
+
+loginPage: {
+  minHeight: '100vh',
+  width: '100vw',
+  backgroundSize: 'contain',
+  backgroundPosition: 'center center',
+  backgroundRepeat: 'no-repeat',
+  fontFamily: 'Arial, sans-serif',
+},
+
+이렇게 하면 사진을 자르지 않고 원본 전체가 보이게 돼.
+
+⚠️ 단, 휴대폰 화면 비율과 사진 비율이 다르면 사진 위·아래 또는 좌우에 빈 공간이 생길 수 있어. 이건 사진 전체를 보여주려면 정상적인 현상이야.
+
+지금은 이것만 바꾸고 저장해줘.
+저장했으면 “했어”라고 해줘. 다음 단계로 실제 화면 확인하자.
+
+통으로 만들어죠 항상 한부분 찾는거 어려워 실수할수도 있고
+
+맞아. 앞으로 코드 수정할 때는 한 부분 찾아서 고치라고 하지 않고, 파일 전체를 통째로 교체할 수 있게 줄게.
+
+지금 올려준 App.jsx 전체 코드도 확인했어. 로그인 배경은 현재 cover로 설정돼 있어서 사진이 잘리는 구조야.
+
+다만 코드가 534줄이라 여기 채팅에 통째로 다시 붙이면 복사 과정에서 누락될 가능성이 있어.
+
+내가 지금 올려준 파일을 기준으로 backgroundSize: 'contain'으로 수정한 완성된 App.jsx 파일 자체를 만들어줄게.
+그 파일 내용을 전체 선택 → 복사 → 기존 App.jsx 전체 삭제 → 붙여넣기만 하면 되게 하자.
+
+어 만들어죠
+
+만들었어. 기존 534줄 코드는 그대로 유지하고, 로그인 배경사진만 잘리지 않고 전체가 보이도록 수정했어.
+
+📄 완성된 App.jsx
+
+App.jsx 받기
+
+이제 VS Code에서:
+
+기존 App.jsx 전체 선택 → 삭제 → 새 App.jsx 내용 전체 복사 → 붙여넣기 → 저장
+
+하면 돼.
+
+완료하면 “했어”라고 해줘. 그다음 화면을 같이 확인하자. 
+
+App.jsx
+코드
+
+라이브러리
+/
+App.jsx
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 
@@ -355,7 +423,7 @@ const styles = {
   loginPage: {
     minHeight: '100vh',
     width: '100vw',
-    backgroundSize: 'cover',
+    backgroundSize: 'contain',
     backgroundPosition: 'center center',
     backgroundRepeat: 'no-repeat',
     fontFamily: 'Arial, sans-serif',
