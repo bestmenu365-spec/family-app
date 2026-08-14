@@ -1,534 +1,289 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabase'
-
 import FamilyEvents from './pages/FamilyEvents'
 import FamilyPhotos from './pages/FamilyPhotos'
 import FamilyLocation from './pages/FamilyLocation'
+import fatherAvatar from './assets/avatars/father-custom-v2.png'
+import motherAvatar from './assets/avatars/mother-custom-v2.png'
+import sonAvatar from './assets/avatars/son-custom-v2.png'
+import Avatar2D from './components/Avatar2D'
+import './App.css'
 
-// 로그인 배경 이미지
 const { data: loginBackgroundData } = supabase.storage
   .from('login-backgrounds')
   .getPublicUrl('login-bg.png')
 
-const loginBackgroundUrl = loginBackgroundData.publicUrl
+const tabs = [
+  { id: 'home', label: '홈', icon: '⌂' },
+  { id: 'family', label: '가족', icon: '♙' },
+  { id: 'memories', label: '추억', icon: '▧' },
+  { id: 'events', label: '일정', icon: '□' },
+  { id: 'more', label: '더보기', icon: '☰' },
+]
 
-function App() {
-  const [session, setSession] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [familyMembers, setFamilyMembers] = useState([])
-  const [page, setPage] = useState('home')
+const memberEmoji = (name = '') => {
+  if (name === '아빠') return '👨🏻'
+  if (name === '엄마') return '👩🏻'
+  if (name === '아들') return '👦🏻'
+  return '🙂'
+}
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
+const defaultAvatars = {
+  아빠: fatherAvatar,
+  엄마: motherAvatar,
+  아들: sonAvatar,
+}
 
-  // 로그인 상태 확인
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-    })
+const DEFAULT_AVATAR_STYLE = {
+  hairStyle: 'basic', hair: '#302823', expression: 'neutral', body: 'normal', outfit: '#6f5aa8', accessory: 'none', bag: 'none', shoes: '#34303a', bracelet: 'none',
+}
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
-        setSession(newSession)
-      }
-    )
+function BottomNav({ page, onChange }) {
+  const activeTab = page === 'profile' || page === 'location' ? 'family' : page
 
-    return () => {
-      listener.subscription.unsubscribe()
-    }
-  }, [])
-
-  // 내 프로필 + 가족 목록
-  useEffect(() => {
-    const loadData = async () => {
-      if (!session?.user?.id) {
-        setProfile(null)
-        setFamilyMembers([])
-        return
-      }
-
-      const { data: myProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url')
-        .eq('id', session.user.id)
-        .single()
-
-      if (profileError) {
-        console.error('내 프로필 오류:', profileError)
-        setProfile(null)
-      } else {
-        setProfile(myProfile)
-      }
-
-      const { data: members, error: membersError } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url')
-
-      if (membersError) {
-        console.error('가족 목록 오류:', membersError)
-        setFamilyMembers([])
-      } else {
-        const order = {
-          아빠: 1,
-          엄마: 2,
-          아들: 3,
-        }
-
-        const sortedMembers = [...(members || [])].sort(
-          (a, b) =>
-            (order[a.name] || 99) -
-            (order[b.name] || 99)
-        )
-
-        setFamilyMembers(sortedMembers)
-      }
-    }
-
-    loadData()
-  }, [session])
-
-  // 로그인
-  const handleLogin = async (e) => {
-    e.preventDefault()
-
-    setMessage('로그인 중...')
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (error) {
-      console.error('로그인 오류:', error)
-      setMessage('이메일 또는 비밀번호를 확인해주세요.')
-    } else {
-      setMessage('')
-      setPage('home')
-    }
-  }
-
-  // 로그아웃
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-
-    setProfile(null)
-    setFamilyMembers([])
-    setPage('home')
-    setEmail('')
-    setPassword('')
-    setMessage('')
-  }
-
-  const getEmoji = (name) => {
-    if (name === '아빠') return '👨'
-    if (name === '엄마') return '👩'
-    if (name === '아들') return '👦'
-
-    return '🙂'
-  }
-
-  // 가족 일정
-  if (session && page === 'events') {
-    return (
-      <FamilyEvents
-        session={session}
-        onBack={() => setPage('home')}
-      />
-    )
-  }
-
-  // 가족 앨범
-  if (session && page === 'photos') {
-    return (
-      <FamilyPhotos
-        session={session}
-        onBack={() => setPage('home')}
-      />
-    )
-  }
-
-  // 가족 위치
-  if (session && page === 'location') {
-    return (
-      <FamilyLocation
-        session={session}
-        onBack={() => setPage('home')}
-      />
-    )
-  }
-
-  // 가족 프로필
-  if (session && page === 'profiles') {
-    return (
-      <div style={styles.page}>
-        <div style={styles.home}>
-          <button
-            style={styles.backButton}
-            onClick={() => setPage('home')}
-          >
-            ← 홈으로
-          </button>
-
-          <p style={styles.badge}>우리 가족</p>
-
-          <h1 style={styles.homeTitle}>
-            가족 프로필
-          </h1>
-
-          <p style={styles.welcome}>
-            우리 가족 구성원입니다.
-          </p>
-
-          <div style={styles.profileGrid}>
-            {familyMembers.map((member) => (
-              <div
-                key={member.id}
-                style={styles.profileCard}
-              >
-                <div style={styles.profileEmoji}>
-                  {getEmoji(member.name)}
-                </div>
-
-                <h2 style={styles.profileName}>
-                  {member.name}
-                </h2>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // 로그인 후 홈
-  if (session) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.home}>
-          <div style={styles.header}>
-            <div>
-              <p style={styles.badge}>
-                우리 가족
-              </p>
-
-              <h1 style={styles.homeTitle}>
-                {profile?.name
-                  ? `${profile.name}님, 안녕하세요`
-                  : '안녕하세요'}
-              </h1>
-
-              <p style={styles.welcome}>
-                오늘도 가족과 좋은 하루 보내세요.
-              </p>
-            </div>
-
-            <button
-              style={styles.logout}
-              onClick={handleLogout}
-            >
-              로그아웃
-            </button>
-          </div>
-
-          <div style={styles.menuGrid}>
-            <button
-              style={styles.menuCard}
-              onClick={() => setPage('events')}
-            >
-              <span style={styles.icon}>📅</span>
-              <strong>가족 일정</strong>
-              <small>우리 가족 일정 확인</small>
-            </button>
-
-            <button
-              style={styles.menuCard}
-              onClick={() => setPage('photos')}
-            >
-              <span style={styles.icon}>📷</span>
-              <strong>가족 앨범</strong>
-              <small>사진과 동영상 공유</small>
-            </button>
-
-            <button
-              style={styles.menuCard}
-              onClick={() => setPage('location')}
-            >
-              <span style={styles.icon}>📍</span>
-              <strong>가족 위치</strong>
-              <small>가족의 최근 위치 확인</small>
-            </button>
-
-            <button
-              style={styles.menuCard}
-              onClick={() => setPage('profiles')}
-            >
-              <span style={styles.icon}>👨‍👩‍👦</span>
-              <strong>가족 프로필</strong>
-              <small>가족 구성원 보기</small>
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // 로그인 화면
   return (
-    <div
-      style={{
-        ...styles.loginPage,
-        backgroundImage: `
-          linear-gradient(
-            rgba(0,0,0,0.12),
-            rgba(0,0,0,0.12)
-          ),
-          url("${loginBackgroundUrl}")
-        `,
-      }}
-    >
-      <div style={styles.loginOverlay}>
-        <div style={styles.loginCard}>
-          <p style={styles.loginBadge}>
-            FAMILY
-          </p>
+    <nav className="bottom-nav" aria-label="주요 메뉴">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          className={activeTab === tab.id ? 'bottom-nav__item is-active' : 'bottom-nav__item'}
+          onClick={() => onChange(tab.id)}
+        >
+          <span className="bottom-nav__icon" aria-hidden="true">{tab.icon}</span>
+          <span>{tab.label}</span>
+        </button>
+      ))}
+    </nav>
+  )
+}
 
-          <h1 style={styles.loginTitle}>
-            우리 가족
-          </h1>
+function Avatar({ member, large = false }) {
+  const avatarSource = member?.avatar_url || defaultAvatars[member?.name]
 
-          <p style={styles.loginSubtitle}>
-            행복한 우리 가족 이야기
-          </p>
-
-          <form onSubmit={handleLogin}>
-            <input
-              style={styles.input}
-              type="email"
-              placeholder="이메일"
-              value={email}
-              onChange={(e) =>
-                setEmail(e.target.value)
-              }
-              required
-            />
-
-            <input
-              style={styles.input}
-              type="password"
-              placeholder="비밀번호"
-              value={password}
-              onChange={(e) =>
-                setPassword(e.target.value)
-              }
-              required
-            />
-
-            <button
-              style={styles.loginButton}
-              type="submit"
-            >
-              로그인
-            </button>
-          </form>
-
-          {message && (
-            <p style={styles.message}>
-              {message}
-            </p>
-          )}
-        </div>
-      </div>
+  return (
+    <div className={large ? 'avatar avatar--large' : 'avatar'}>
+      {avatarSource ? (
+        <img src={avatarSource} alt={`${member.name} 아바타`} />
+      ) : (
+        <span aria-hidden="true">{memberEmoji(member?.name)}</span>
+      )}
     </div>
   )
 }
 
-const styles = {
-  page: {
-    minHeight: '100vh',
-    background: '#f4f6f8',
-    fontFamily: 'Arial, sans-serif',
-    padding: '20px',
-    boxSizing: 'border-box',
-  },
+function Home({ profile, members, events, photos, onNavigate, onMember }) {
+  return (
+    <main className="screen home-screen">
+      <header className="top-row">
+        <div>
+          <p className="eyebrow">우리 가족</p>
+          <h1>우리 가족 <span aria-hidden="true">❤️</span></h1>
+        </div>
+        <button className="icon-button" type="button" aria-label="알림">♧<i /></button>
+      </header>
 
-  loginPage: {
-    minHeight: '100vh',
-    width: '100vw',
-    backgroundSize: 'contain',
-    backgroundPosition: 'center center',
-    backgroundRepeat: 'no-repeat',
-    fontFamily: 'Arial, sans-serif',
-  },
+      <p className="welcome-copy">
+        {profile?.name ? `${profile.name}님, 오늘도 가족과 행복한 하루 보내세요.` : '오늘도 가족과 행복한 하루 보내세요.'}
+      </p>
 
-  loginOverlay: {
-    minHeight: '100vh',
-    width: '100%',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: '20px',
-    boxSizing: 'border-box',
-  },
+      <section className="section-block">
+        <div className="section-heading">
+          <h2>우리 가족</h2>
+          <button type="button" onClick={() => onNavigate('family')}>전체 보기</button>
+        </div>
+        <div className="member-strip">
+          {members.map((member) => (
+            <button className="member-mini-card" type="button" key={member.id} onClick={() => onMember(member)}>
+              <Avatar2D member={member} customization={DEFAULT_AVATAR_STYLE} />
+              <strong>{member.name}</strong>
+              <span><i className="status-dot status-dot--green" /> 함께 있어요</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
-  loginCard: {
-    width: '90%',
-    maxWidth: '360px',
-    padding: '34px 28px',
-    borderRadius: '24px',
-    background: 'rgba(255,255,255,0.86)',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
-    boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
-    textAlign: 'center',
-  },
+      <section className="soft-card">
+        <div className="section-heading">
+          <h2>오늘의 일정</h2>
+          <button type="button" onClick={() => onNavigate('events')}>더보기 ›</button>
+        </div>
+        <div className="schedule-list">
+          {events.length ? events.slice(0, 3).map((event, index) => (
+            <div className="schedule-row" key={event.id}>
+              <span className={`schedule-dot schedule-dot--${index % 3}`} />
+              <div><strong>{event.title}</strong><small>{new Date(event.event_date).toLocaleString('ko-KR')}</small></div>
+            </div>
+          )) : <p className="empty-copy">오늘 등록된 일정이 없습니다.</p>}
+        </div>
+      </section>
 
-  loginBadge: {
-    margin: 0,
-    fontSize: '12px',
-    fontWeight: 'bold',
-    letterSpacing: '3px',
-    color: '#a07754',
-  },
+      <section className="section-block">
+        <div className="section-heading">
+          <h2>최근 추억</h2>
+          <button type="button" onClick={() => onNavigate('memories')}>더보기 ›</button>
+        </div>
+        <div className="memory-preview">
+          {photos.length ? photos.slice(0, 3).map((photo) => (
+            <div key={photo.id} className="memory-tile">
+              {photo.signedUrl ? <img src={photo.signedUrl} alt={photo.memo || '가족 추억'} /> : <span>📷</span>}
+            </div>
+          )) : <div className="empty-preview">첫 가족 추억을 남겨보세요 📷</div>}
+        </div>
+      </section>
+    </main>
+  )
+}
 
-  loginTitle: {
-    margin: '8px 0 5px',
-    fontSize: '32px',
-    color: '#46392f',
-  },
+function FamilyList({ members, onMember }) {
+  return (
+    <main className="screen">
+      <header className="top-row"><h1>가족</h1><button className="icon-button" type="button" aria-label="가족 추가 준비 중">＋</button></header>
+      <p className="screen-subtitle">소중한 우리 가족을 확인해보세요.</p>
+      <div className="family-list">
+        {members.map((member) => (
+          <button type="button" className="family-row" key={member.id} onClick={() => onMember(member)}>
+            <Avatar member={member} />
+            <span className="family-row__info"><strong>{member.name}</strong><small><i className="status-dot status-dot--green" /> 함께 있어요</small></span>
+            <span className="chevron">›</span>
+          </button>
+        ))}
+      </div>
+      <button className="add-family-card" type="button" onClick={() => window.alert('가족 추가 기능은 다음 단계에서 연결할 예정입니다.')}>＋ 가족 추가</button>
+    </main>
+  )
+}
 
-  loginSubtitle: {
-    color: '#806f61',
-    marginBottom: '25px',
-  },
+function FamilyProfile({ member, onBack, onLocation }) {
+  const unavailable = () => window.alert('연락처 정보가 없어 아직 사용할 수 없습니다.')
+  return (
+    <main className="screen profile-screen">
+      <header className="detail-header">
+        <button className="icon-button" type="button" onClick={onBack} aria-label="가족 목록으로">‹</button>
+        <button className="icon-button" type="button" aria-label="더보기">•••</button>
+      </header>
+      <section className="profile-hero">
+        <Avatar2D member={member} customization={DEFAULT_AVATAR_STYLE} large />
+        <h1>{member?.name || '가족'}</h1>
+        <p><i className="status-dot status-dot--green" /> 함께 있어요</p>
+      </section>
+      <div className="action-grid">
+        <button type="button" onClick={unavailable}><span>☎</span>전화하기</button>
+        <button type="button" onClick={unavailable}><span>♢</span>문자 보내기</button>
+        <button type="button" onClick={unavailable}><span>▰</span>영상통화</button>
+        <button type="button" onClick={onLocation}><span>⌖</span>위치 보기</button>
+        <button type="button" onClick={() => window.alert('프로필 보기 기능을 준비하고 있습니다.')}><span>♙</span>프로필 보기</button>
+      </div>
+    </main>
+  )
+}
 
-  badge: {
-    margin: 0,
-    fontSize: '13px',
-    fontWeight: 'bold',
-    letterSpacing: '2px',
-    color: '#888',
-  },
+function More({ onLocation, onLogout }) {
+  const groups = [
+    { title: '가족 관리', items: [['✓', '할 일'], ['♢', '가족 게시판'], ['♧', '알림'], ['⌁', '가족 통계']] },
+    { title: '설정 및 지원', items: [['⚙', '설정'], ['?', '고객센터']] },
+  ]
+  return (
+    <main className="screen">
+      <header className="top-row"><h1>더보기</h1></header>
+      {groups.map((group) => <section className="more-section" key={group.title}><h2>{group.title}</h2><div className="more-card">
+        {group.items.map(([icon, label]) => <button type="button" key={label} onClick={() => window.alert(`${label} 기능을 준비하고 있습니다.`)}><span>{icon}</span>{label}<b>›</b></button>)}
+        {group.title === '가족 관리' && <button type="button" onClick={onLocation}><span>⌖</span>가족 위치<b>›</b></button>}
+      </div></section>)}
+      <button className="logout-button" type="button" onClick={onLogout}>로그아웃</button>
+    </main>
+  )
+}
 
-  input: {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '14px',
-    marginBottom: '12px',
-    borderRadius: '12px',
-    border: '1px solid rgba(120,100,80,0.25)',
-    background: 'rgba(255,255,255,0.94)',
-    fontSize: '16px',
-  },
+function Login({ email, password, message, onEmail, onPassword, onSubmit }) {
+  return (
+    <main className="login-page" style={{ backgroundImage: `linear-gradient(rgba(54, 39, 62, .08), rgba(54, 39, 62, .08)), url("${loginBackgroundData.publicUrl}")` }}>
+      <section className="login-card">
+        <form onSubmit={onSubmit}>
+          <input type="email" placeholder="이메일" value={email} onChange={(e) => onEmail(e.target.value)} required />
+          <input type="password" placeholder="비밀번호" value={password} onChange={(e) => onPassword(e.target.value)} required />
+          <button type="submit">로그인</button>
+        </form>
+        {message && <p className="form-message">{message}</p>}
+      </section>
+    </main>
+  )
+}
 
-  loginButton: {
-    width: '100%',
-    padding: '14px',
-    border: 'none',
-    borderRadius: '12px',
-    background: '#56463a',
-    color: 'white',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-  },
+function App() {
+  const [session, setSession] = useState(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [profile, setProfile] = useState(null)
+  const [familyMembers, setFamilyMembers] = useState([])
+  const [events, setEvents] = useState([])
+  const [recentPhotos, setRecentPhotos] = useState([])
+  const [page, setPage] = useState('home')
+  const [selectedMember, setSelectedMember] = useState(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [message, setMessage] = useState('')
 
-  message: {
-    marginTop: '18px',
-  },
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true) })
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => { setSession(newSession); setAuthReady(true) })
+    return () => listener.subscription.unsubscribe()
+  }, [])
 
-  home: {
-    maxWidth: '700px',
-    margin: '30px auto',
-  },
+  useEffect(() => {
+    const loadData = async () => {
+      if (!session?.user?.id) { setProfile(null); setFamilyMembers([]); return }
+      const [profileResult, membersResult, eventsResult, photosResult] = await Promise.all([
+        supabase.from('profiles').select('id, name, avatar_url').eq('id', session.user.id).single(),
+        supabase.from('profiles').select('id, name, avatar_url'),
+        supabase.from('family_events').select('id, title, event_date').order('event_date', { ascending: true }).limit(3),
+        supabase.from('photos').select('id, image_url, memo').order('created_at', { ascending: false }).limit(3),
+      ])
+      if (!profileResult.error) setProfile(profileResult.data)
+      if (!membersResult.error) setFamilyMembers(membersResult.data || [])
+      if (!eventsResult.error) setEvents(eventsResult.data || [])
+      if (!photosResult.error) {
+        const withUrls = await Promise.all((photosResult.data || []).map(async (item) => {
+          const { data } = await supabase.storage.from('family-photos').createSignedUrl(item.image_url, 3600)
+          return { ...item, signedUrl: data?.signedUrl || null }
+        }))
+        setRecentPhotos(withUrls)
+      }
+    }
+    loadData()
+  }, [session])
 
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '20px',
-    marginBottom: '30px',
-  },
+  const sortedMembers = useMemo(() => {
+    const order = { 아빠: 1, 엄마: 2, 아들: 3 }
+    return [...familyMembers].sort((a, b) => (order[a.name] || 99) - (order[b.name] || 99))
+  }, [familyMembers])
 
-  homeTitle: {
-    margin: '8px 0 0',
-    fontSize: '32px',
-  },
+  const handleLogin = async (event) => {
+    event.preventDefault(); setMessage('로그인 중...')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setMessage('이메일 또는 비밀번호를 확인해주세요.')
+    else { setMessage(''); setPage('home') }
+  }
 
-  welcome: {
-    color: '#777',
-    marginBottom: '30px',
-  },
+  const handleLogout = async () => {
+    await supabase.auth.signOut(); setPage('home'); setSelectedMember(null); setEmail(''); setPassword(''); setMessage('')
+  }
 
-  logout: {
-    border: '1px solid #ddd',
-    background: 'white',
-    padding: '10px 14px',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
+  const openMember = (member) => { setSelectedMember(member); setPage('profile') }
+  const navigate = (nextPage) => { setSelectedMember(null); setPage(nextPage) }
 
-  menuGrid: {
-    display: 'grid',
-    gridTemplateColumns:
-      'repeat(2, minmax(0, 1fr))',
-    gap: '15px',
-  },
+  if (!authReady) return <div className="app-loading"><span>우리 가족</span><small>불러오는 중...</small></div>
+  if (!session) return <Login {...{ email, password, message }} onEmail={setEmail} onPassword={setPassword} onSubmit={handleLogin} />
 
-  menuCard: {
-    minHeight: '150px',
-    border: 'none',
-    borderRadius: '18px',
-    background: 'white',
-    boxShadow:
-      '0 5px 20px rgba(0,0,0,0.06)',
-    padding: '20px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '17px',
-    cursor: 'pointer',
-  },
+  let content
+  if (page === 'family') content = <FamilyList members={sortedMembers} onMember={openMember} />
+  else if (page === 'profile') content = <FamilyProfile member={selectedMember} onBack={() => setPage('family')} onLocation={() => setPage('location')} />
+  else if (page === 'memories') content = <FamilyPhotos session={session} onBack={() => setPage('home')} />
+  else if (page === 'events') content = <FamilyEvents session={session} onBack={() => setPage('home')} />
+  else if (page === 'location') content = <FamilyLocation session={session} onBack={() => setPage('family')} />
+  else if (page === 'more') content = <More onLocation={() => setPage('location')} onLogout={handleLogout} />
+  else content = <Home profile={profile} members={sortedMembers} events={events} photos={recentPhotos} onNavigate={navigate} onMember={openMember} />
 
-  icon: {
-    fontSize: '35px',
-  },
-
-  backButton: {
-    border: '1px solid #ddd',
-    background: 'white',
-    padding: '10px 14px',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    marginBottom: '25px',
-  },
-
-  profileGrid: {
-    display: 'grid',
-    gridTemplateColumns:
-      'repeat(3, minmax(0, 1fr))',
-    gap: '15px',
-  },
-
-  profileCard: {
-    background: 'white',
-    borderRadius: '18px',
-    padding: '30px 20px',
-    textAlign: 'center',
-    boxShadow:
-      '0 5px 20px rgba(0,0,0,0.06)',
-  },
-
-  profileEmoji: {
-    fontSize: '50px',
-  },
-
-  profileName: {
-    marginBottom: 0,
-  },
+  return <div className="mobile-app">{content}<BottomNav page={page} onChange={navigate} /></div>
 }
 
 export default App
