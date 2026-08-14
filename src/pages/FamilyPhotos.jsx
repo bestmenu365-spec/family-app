@@ -1,852 +1,193 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-function FamilyPhotos({ session, onBack }) {
-  const [photos, setPhotos] = useState([])
+const STORAGE_KEY = 'family-shorts-reactions'
+
+function FamilyPhotos({ session, onBack, uploadRequestKey = 0 }) {
+  const [items, setItems] = useState([])
   const [uploading, setUploading] = useState(false)
-  const [deletingId, setDeletingId] = useState(null)
   const [message, setMessage] = useState('')
   const [memo, setMemo] = useState('')
-  const [selectedItem, setSelectedItem] = useState(null)
-  const [isMobile, setIsMobile] = useState(
-    window.innerWidth <= 600
-  )
+  const [showUploader, setShowUploader] = useState(false)
+  const [commentItem, setCommentItem] = useState(null)
+  const [comment, setComment] = useState('')
+  const [reactions, setReactions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {} } catch { return {} }
+  })
+  const photoCameraRef = useRef(null)
+  const videoCameraRef = useRef(null)
+  const albumRef = useRef(null)
 
-  const loadPhotos = async () => {
+  const isVideo = (path = '') => ['mp4', 'mov', 'm4v', 'webm', 'avi'].includes(path.split('.').pop()?.toLowerCase())
+
+  const loadItems = async () => {
     const { data, error } = await supabase
       .from('photos')
-      .select(`
-        id,
-        user_id,
-        image_url,
-        memo,
-        created_at,
-        profiles (
-          name
-        )
-      `)
+      .select('id, user_id, image_url, memo, created_at, profiles(name)')
       .order('created_at', { ascending: false })
 
-    if (error) {
-      console.error('앨범 목록 오류:', error)
-      setMessage('앨범을 불러오지 못했습니다.')
-      return
-    }
-
-    const itemsWithUrls = await Promise.all(
-      (data || []).map(async (item) => {
-        const { data: signedData, error: signedError } =
-          await supabase.storage
-            .from('family-photos')
-            .createSignedUrl(item.image_url, 3600)
-
-        if (signedError) {
-          console.error('파일 주소 오류:', signedError)
-
-          return {
-            ...item,
-            signedUrl: null,
-          }
-        }
-
-        return {
-          ...item,
-          signedUrl: signedData.signedUrl,
-        }
-      })
-    )
-
-    setPhotos(itemsWithUrls)
+    if (error) { console.error(error); setMessage('Shorts를 불러오지 못했습니다.'); return }
+    const withUrls = await Promise.all((data || []).map(async (item) => {
+      const { data: signed } = await supabase.storage.from('family-photos').createSignedUrl(item.image_url, 3600)
+      return { ...item, signedUrl: signed?.signedUrl || null }
+    }))
+    setItems(withUrls)
   }
 
-  useEffect(() => {
-    loadPhotos()
-  }, [])
+  useEffect(() => { loadItems() }, [])
+  useEffect(() => { if (uploadRequestKey > 0) setShowUploader(true) }, [uploadRequestKey])
 
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth <= 600)
-    }
+  const saveReactions = (next) => {
+    setReactions(next)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  }
 
-    window.addEventListener('resize', handleResize)
+  const like = (id) => {
+    const current = reactions[id] || { likes: 0, comments: [] }
+    saveReactions({ ...reactions, [id]: { ...current, likes: current.likes + 1 } })
+  }
 
-    return () => {
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        setSelectedItem(null)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [])
-
-  const isVideo = (filePath) => {
-    if (!filePath) return false
-
-    const extension = filePath
-      .split('.')
-      .pop()
-      .toLowerCase()
-
-    return [
-      'mp4',
-      'mov',
-      'm4v',
-      'webm',
-      'avi',
-    ].includes(extension)
+  const submitComment = (event) => {
+    event.preventDefault()
+    if (!comment.trim() || !commentItem) return
+    const current = reactions[commentItem.id] || { likes: 0, comments: [] }
+    const nextComment = { text: comment.trim(), createdAt: new Date().toISOString() }
+    saveReactions({ ...reactions, [commentItem.id]: { ...current, comments: [...current.comments, nextComment] } })
+    setComment('')
   }
 
   const uploadMedia = async (event) => {
     const file = event.target.files?.[0]
-
     if (!file) return
-
-    const maxSize = 50 * 1024 * 1024
-
-    if (file.size > maxSize) {
-      setMessage('파일 크기는 50MB 이하만 올릴 수 있습니다.')
+    if ((!file.type.startsWith('image/') && !file.type.startsWith('video/')) || file.size > 50 * 1024 * 1024) {
+      setMessage(file.size > 50 * 1024 * 1024 ? '파일은 50MB 이하만 올릴 수 있습니다.' : '사진 또는 동영상만 선택해주세요.')
       event.target.value = ''
       return
     }
-
-    const isImageFile = file.type.startsWith('image/')
-    const isVideoFile = file.type.startsWith('video/')
-
-    if (!isImageFile && !isVideoFile) {
-      setMessage('사진 또는 동영상 파일만 선택해주세요.')
-      event.target.value = ''
-      return
-    }
-
     setUploading(true)
-
-    setMessage(
-      isVideoFile
-        ? '동영상을 올리는 중입니다...'
-        : '사진을 올리는 중입니다...'
-    )
-
-    const originalExtension =
-      file.name.split('.').pop()?.toLowerCase()
-
-    const extension =
-      originalExtension ||
-      (isVideoFile ? 'mp4' : 'jpg')
-
-    const fileName =
-      `${session.user.id}/${Date.now()}.${extension}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('family-photos')
-      .upload(fileName, file, {
-        contentType: file.type,
-        upsert: false,
-      })
-
-    if (uploadError) {
-      console.error('파일 업로드 오류:', uploadError)
-      setMessage('파일 업로드에 실패했습니다.')
-      setUploading(false)
-      event.target.value = ''
-      return
-    }
-
-    const { error: databaseError } = await supabase
-      .from('photos')
-      .insert({
-        user_id: session.user.id,
-        image_url: fileName,
-        memo: memo.trim() || null,
-      })
-
+    setMessage('Shorts를 올리는 중입니다...')
+    const extension = file.name.split('.').pop()?.toLowerCase() || (file.type.startsWith('video/') ? 'mp4' : 'jpg')
+    const fileName = `${session.user.id}/${Date.now()}.${extension}`
+    const { error: uploadError } = await supabase.storage.from('family-photos').upload(fileName, file, { contentType: file.type, upsert: false })
+    if (uploadError) { console.error(uploadError); setMessage('업로드에 실패했습니다.'); setUploading(false); event.target.value = ''; return }
+    const { error: databaseError } = await supabase.from('photos').insert({ user_id: session.user.id, image_url: fileName, memo: memo.trim() || null })
     if (databaseError) {
-      console.error('앨범 정보 저장 오류:', databaseError)
-
-      await supabase.storage
-        .from('family-photos')
-        .remove([fileName])
-
-      setMessage('앨범 정보 저장에 실패했습니다.')
-      setUploading(false)
-      event.target.value = ''
-      return
+      console.error(databaseError)
+      await supabase.storage.from('family-photos').remove([fileName])
+      setMessage('Shorts 정보 저장에 실패했습니다.')
+    } else {
+      setMessage('Shorts가 등록되었습니다.')
+      setMemo('')
+      setShowUploader(false)
+      await loadItems()
     }
-
-    setMemo('')
-
-    setMessage(
-      isVideoFile
-        ? '동영상이 등록되었습니다.'
-        : '사진이 등록되었습니다.'
-    )
-
     setUploading(false)
     event.target.value = ''
-
-    await loadPhotos()
   }
 
   const deleteMedia = async (item) => {
-    const typeName =
-      isVideo(item.image_url)
-        ? '동영상'
-        : '사진'
-
-    const ok = window.confirm(
-      `정말 이 ${typeName}을 삭제할까요?\n삭제하면 복구하기 어렵습니다.`
-    )
-
-    if (!ok) return
-
-    setDeletingId(item.id)
-    setMessage(`${typeName}을 삭제하는 중입니다...`)
-
-    const { error: databaseError } = await supabase
-      .from('photos')
-      .delete()
-      .eq('id', item.id)
-
-    if (databaseError) {
-      console.error('앨범 기록 삭제 오류:', databaseError)
-      setMessage(`${typeName} 삭제에 실패했습니다.`)
-      setDeletingId(null)
-      return
-    }
-
-    const { error: storageError } = await supabase.storage
-      .from('family-photos')
-      .remove([item.image_url])
-
-    if (storageError) {
-      console.error('Storage 파일 삭제 오류:', storageError)
-
-      setMessage(
-        '앨범에서는 삭제됐지만 저장 파일 삭제에 실패했습니다.'
-      )
-    } else {
-      setMessage(`${typeName}이 삭제되었습니다.`)
-    }
-
-    if (selectedItem?.id === item.id) {
-      setSelectedItem(null)
-    }
-
-    setDeletingId(null)
-
-    await loadPhotos()
+    if (!window.confirm('이 Shorts를 삭제할까요? 삭제하면 복구하기 어렵습니다.')) return
+    const { error } = await supabase.from('photos').delete().eq('id', item.id)
+    if (error) { setMessage('삭제에 실패했습니다.'); return }
+    await supabase.storage.from('family-photos').remove([item.image_url])
+    setMessage('Shorts가 삭제되었습니다.')
+    await loadItems()
   }
 
   return (
-    <div style={styles.page}>
-      <div
-        style={{
-          ...styles.container,
-          ...(isMobile ? styles.mobileContainer : {}),
-        }}
-      >
+    <main style={styles.page}>
+      <header style={styles.header}>
+        <button type="button" style={styles.headerButton} onClick={onBack}>‹</button>
+        <h1 style={styles.title}>Shorts</h1>
+        <button type="button" style={styles.headerButton} onClick={() => setShowUploader(true)}>＋</button>
+      </header>
+      {message && <p style={styles.message}>{message}</p>}
 
-        <button
-          type="button"
-          style={styles.backButton}
-          onClick={onBack}
-        >
-          ← 홈으로
-        </button>
-
-        <h1
-          style={{
-            ...styles.title,
-            ...(isMobile ? styles.mobileTitle : {}),
-          }}
-        >
-          📷 가족 앨범
-        </h1>
-
-        <p style={styles.subtitle}>
-          우리 가족의 사진과 동영상을 함께 보관합니다.
-        </p>
-
-        <div style={styles.uploadBox}>
-          <textarea
-            style={styles.memoInput}
-            placeholder="사진이나 동영상에 남길 메모"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-          />
-
-          <label style={styles.uploadButton}>
-            {uploading
-              ? '업로드 중...'
-              : '+ 사진 또는 동영상 올리기'}
-
-            <input
-              type="file"
-              accept="image/*,video/*"
-              onChange={uploadMedia}
-              disabled={uploading}
-              style={{ display: 'none' }}
-            />
-          </label>
-
-          <p style={styles.fileGuide}>
-            사진 또는 동영상 · 파일당 최대 50MB
-          </p>
-        </div>
-
-        {message && (
-          <p style={styles.message}>
-            {message}
-          </p>
-        )}
-
-        {photos.length === 0 ? (
-          <div style={styles.empty}>
-            <div style={styles.emptyIcon}>
-              📷
-            </div>
-
-            <p>
-              아직 등록된 추억이 없습니다.
-            </p>
-          </div>
-        ) : (
-          <div
-            style={{
-              ...styles.photoGrid,
-              gridTemplateColumns: isMobile
-                ? '1fr'
-                : 'repeat(2, minmax(0, 1fr))',
-            }}
-          >
-            {photos.map((item) => {
-              const video = isVideo(item.image_url)
-
-              return (
-                <div
-                  key={item.id}
-                  style={styles.photoCard}
-                >
-                  {item.signedUrl ? (
-                    video ? (
-                      <div
-                        style={{
-                          ...styles.mediaWrapper,
-                          ...(isMobile
-                            ? styles.mobileMediaWrapper
-                            : {}),
-                        }}
-                        onClick={() => setSelectedItem(item)}
-                      >
-                        <video
-                          src={item.signedUrl}
-                          muted
-                          playsInline
-                          preload="metadata"
-                          style={styles.videoPreview}
-                        />
-
-                        <div style={styles.videoPlayButton}>
-                          ▶
-                        </div>
-
-                        <div style={styles.clickGuide}>
-                          크게 재생
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          ...styles.mediaWrapper,
-                          ...(isMobile
-                            ? styles.mobileMediaWrapper
-                            : {}),
-                        }}
-                        onClick={() => setSelectedItem(item)}
-                      >
-                        <img
-                          src={item.signedUrl}
-                          alt="가족 추억"
-                          loading="lazy"
-                          style={styles.imagePreview}
-                        />
-
-                        <div style={styles.clickGuide}>
-                          크게 보기
-                        </div>
-                      </div>
-                    )
-                  ) : (
-                    <div style={styles.mediaError}>
-                      파일을 표시할 수 없습니다.
-                    </div>
-                  )}
-
-                  <div style={styles.photoInfo}>
-                    <div style={styles.infoTop}>
-                      <strong style={styles.author}>
-                        {item.profiles?.name || '가족'}
-                      </strong>
-
-                      <span style={styles.mediaType}>
-                        {video ? '🎬 동영상' : '📷 사진'}
-                      </span>
-                    </div>
-
-                    <span style={styles.date}>
-                      {new Date(item.created_at)
-                        .toLocaleString('ko-KR')}
-                    </span>
-
-                    {item.memo && (
-                      <p style={styles.memo}>
-                        {item.memo}
-                      </p>
-                    )}
-
-                    {item.user_id === session.user.id && (
-                      <button
-                        type="button"
-                        style={styles.deleteButton}
-                        onClick={() => deleteMedia(item)}
-                        disabled={deletingId === item.id}
-                      >
-                        {deletingId === item.id
-                          ? '삭제 중...'
-                          : video
-                            ? '🗑 동영상 삭제'
-                            : '🗑 사진 삭제'}
-                      </button>
-                    )}
-                  </div>
+      <section style={styles.feed}>
+        {items.length === 0 ? <div style={styles.empty}>첫 가족 Shorts를 올려보세요 🎬</div> : items.map((item) => {
+          const counts = reactions[item.id] || { likes: 0, comments: [] }
+          return (
+            <article key={item.id} style={styles.shortCard}>
+              <div style={styles.mediaArea}>
+                {item.signedUrl ? (isVideo(item.image_url)
+                  ? <video src={item.signedUrl} controls playsInline preload="metadata" style={styles.media}/>
+                  : <img src={item.signedUrl} alt={item.memo || '가족 Shorts'} loading="lazy" style={styles.media}/>)
+                  : <div style={styles.mediaError}>파일을 표시할 수 없습니다.</div>}
+                <div style={styles.sideActions}>
+                  <button type="button" style={styles.actionButton} onClick={() => like(item.id)}><span>♡</span><b>+{counts.likes}</b></button>
+                  <button type="button" style={styles.actionButton} onClick={() => setCommentItem(item)}><span>♧</span><b>+{counts.comments.length}</b></button>
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {selectedItem && (
-        <div
-          style={styles.modalOverlay}
-          onClick={() => setSelectedItem(null)}
-        >
-          <div
-            style={{
-              ...styles.modalContent,
-              ...(isMobile ? styles.mobileModalContent : {}),
-            }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              style={styles.modalCloseButton}
-              onClick={() => setSelectedItem(null)}
-            >
-              ✕ 닫기
-            </button>
-
-            <div style={styles.modalMediaArea}>
-              {isVideo(selectedItem.image_url) ? (
-                <video
-                  src={selectedItem.signedUrl}
-                  controls
-                  autoPlay
-                  playsInline
-                  style={styles.modalVideo}
-                >
-                  동영상을 재생할 수 없습니다.
-                </video>
-              ) : (
-                <img
-                  src={selectedItem.signedUrl}
-                  alt="가족 추억 크게 보기"
-                  style={styles.modalImage}
-                />
-              )}
-            </div>
-
-            <div style={styles.modalInfo}>
-              <div style={styles.modalInfoTop}>
-                <strong>
-                  {selectedItem.profiles?.name || '가족'}
-                </strong>
-
-                <span>
-                  {isVideo(selectedItem.image_url)
-                    ? '🎬 동영상'
-                    : '📷 사진'}
-                </span>
+                <div style={styles.caption}>
+                  <strong>{item.profiles?.name || '가족'}</strong>
+                  {item.memo && <p>{item.memo}</p>}
+                  <small>{new Date(item.created_at).toLocaleString('ko-KR')}</small>
+                </div>
               </div>
+              {item.user_id === session.user.id && <button type="button" style={styles.deleteButton} onClick={() => deleteMedia(item)}>삭제</button>}
+            </article>
+          )
+        })}
+      </section>
 
-              <div style={styles.modalDate}>
-                {new Date(selectedItem.created_at)
-                  .toLocaleString('ko-KR')}
-              </div>
+      {showUploader && <div style={styles.overlay} onClick={() => !uploading && setShowUploader(false)}>
+        <section style={styles.sheet} onClick={(event) => event.stopPropagation()}>
+          <div style={styles.sheetHandle}/><h2>새 Shorts 올리기</h2>
+          <textarea style={styles.memoInput} placeholder="사진이나 영상에 남길 이야기" value={memo} onChange={(event) => setMemo(event.target.value)}/>
+          <button type="button" style={styles.uploadChoice} onClick={() => photoCameraRef.current?.click()} disabled={uploading}>📷 사진 바로 찍기</button>
+          <button type="button" style={styles.uploadChoice} onClick={() => videoCameraRef.current?.click()} disabled={uploading}>🎥 영상 바로 찍기</button>
+          <button type="button" style={styles.uploadChoice} onClick={() => albumRef.current?.click()} disabled={uploading}>▧ 스마트폰 앨범에서 선택</button>
+          <input ref={photoCameraRef} hidden type="file" accept="image/*" capture="environment" onChange={uploadMedia}/>
+          <input ref={videoCameraRef} hidden type="file" accept="video/*" capture="environment" onChange={uploadMedia}/>
+          <input ref={albumRef} hidden type="file" accept="image/*,video/*" onChange={uploadMedia}/>
+          <p style={styles.guide}>{uploading ? '업로드 중입니다...' : '사진 또는 동영상 · 파일당 최대 50MB'}</p>
+          <button type="button" style={styles.cancelButton} onClick={() => setShowUploader(false)} disabled={uploading}>취소</button>
+        </section>
+      </div>}
 
-              {selectedItem.memo && (
-                <p style={styles.modalMemo}>
-                  {selectedItem.memo}
-                </p>
-              )}
-            </div>
+      {commentItem && <div style={styles.overlay} onClick={() => setCommentItem(null)}>
+        <section style={styles.commentSheet} onClick={(event) => event.stopPropagation()}>
+          <div style={styles.sheetHandle}/><h2>댓글 +{(reactions[commentItem.id]?.comments || []).length}</h2>
+          <div style={styles.comments}>
+            {(reactions[commentItem.id]?.comments || []).map((entry, index) => <p key={`${entry.createdAt}-${index}`}><strong>가족</strong> {entry.text}</p>)}
+            {!(reactions[commentItem.id]?.comments || []).length && <span>첫 댓글을 남겨보세요.</span>}
           </div>
-        </div>
-      )}
-    </div>
+          <form style={styles.commentForm} onSubmit={submitComment}>
+            <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="댓글 입력"/>
+            <button type="submit">등록</button>
+          </form>
+          <button type="button" style={styles.cancelButton} onClick={() => setCommentItem(null)}>닫기</button>
+        </section>
+      </div>}
+    </main>
   )
 }
 
 const styles = {
-  page: {
-    minHeight: '100vh',
-    background: '#f4f6f8',
-    padding: '20px',
-    boxSizing: 'border-box',
-    fontFamily: 'Arial, sans-serif',
-  },
-
-  container: {
-    maxWidth: '700px',
-    margin: '30px auto',
-  },
-
-  mobileContainer: {
-    margin: '10px auto',
-  },
-
-  backButton: {
-    border: '1px solid #dddddd',
-    background: '#ffffff',
-    color: '#222222',
-    padding: '10px 14px',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    marginBottom: '25px',
-    fontSize: '14px',
-  },
-
-  title: {
-    marginBottom: '8px',
-    fontSize: '32px',
-    color: '#222222',
-  },
-
-  mobileTitle: {
-    fontSize: '27px',
-  },
-
-  subtitle: {
-    color: '#777777',
-    marginBottom: '25px',
-  },
-
-  uploadBox: {
-    background: '#ffffff',
-    padding: '18px',
-    borderRadius: '15px',
-    marginBottom: '20px',
-    boxShadow: '0 4px 15px rgba(0,0,0,0.05)',
-  },
-
-  memoInput: {
-    width: '100%',
-    minHeight: '80px',
-    resize: 'vertical',
-    boxSizing: 'border-box',
-    padding: '12px',
-    border: '1px solid #dddddd',
-    borderRadius: '10px',
-    fontSize: '16px',
-    color: '#222222',
-    background: '#ffffff',
-    marginBottom: '12px',
-  },
-
-  uploadButton: {
-    display: 'block',
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '15px',
-    background: '#222222',
-    color: '#ffffff',
-    borderRadius: '12px',
-    textAlign: 'center',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    fontSize: '15px',
-  },
-
-  fileGuide: {
-    margin: '10px 0 0',
-    textAlign: 'center',
-    color: '#999999',
-    fontSize: '12px',
-  },
-
-  message: {
-    textAlign: 'center',
-    margin: '15px 0',
-    color: '#444444',
-  },
-
-  photoGrid: {
-    display: 'grid',
-    gap: '14px',
-  },
-
-  photoCard: {
-    background: '#ffffff',
-    borderRadius: '15px',
-    overflow: 'hidden',
-    boxShadow: '0 4px 15px rgba(0,0,0,0.05)',
-  },
-
-  mediaWrapper: {
-    position: 'relative',
-    width: '100%',
-    aspectRatio: '1 / 1',
-    background: '#111111',
-    overflow: 'hidden',
-    cursor: 'pointer',
-  },
-
-  mobileMediaWrapper: {
-    aspectRatio: '4 / 3',
-  },
-
-  imagePreview: {
-    display: 'block',
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-
-  videoPreview: {
-    display: 'block',
-    width: '100%',
-    height: '100%',
-    objectFit: 'contain',
-    background: '#000000',
-  },
-
-  videoPlayButton: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: '58px',
-    height: '58px',
-    borderRadius: '50%',
-    background: 'rgba(0,0,0,0.65)',
-    color: '#ffffff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '26px',
-    paddingLeft: '4px',
-    pointerEvents: 'none',
-  },
-
-  clickGuide: {
-    position: 'absolute',
-    left: '50%',
-    bottom: '10px',
-    transform: 'translateX(-50%)',
-    background: 'rgba(0,0,0,0.65)',
-    color: '#ffffff',
-    padding: '5px 10px',
-    borderRadius: '20px',
-    fontSize: '11px',
-    whiteSpace: 'nowrap',
-    pointerEvents: 'none',
-  },
-
-  mediaError: {
-    aspectRatio: '1 / 1',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#888888',
-    padding: '15px',
-    boxSizing: 'border-box',
-    textAlign: 'center',
-  },
-
-  photoInfo: {
-    padding: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '7px',
-  },
-
-  infoTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '10px',
-    fontSize: '14px',
-  },
-
-  author: {
-    color: '#222222',
-  },
-
-  mediaType: {
-    color: '#555555',
-  },
-
-  date: {
-    color: '#888888',
-    fontSize: '12px',
-  },
-
-  memo: {
-    margin: '4px 0',
-    lineHeight: 1.5,
-    color: '#333333',
-    whiteSpace: 'pre-wrap',
-  },
-
-  deleteButton: {
-    display: 'block',
-    width: '100%',
-    marginTop: '10px',
-    border: '1px solid #e53935',
-    background: '#fff0f0',
-    color: '#c62828',
-    WebkitTextFillColor: '#c62828',
-    padding: '11px 10px',
-    borderRadius: '9px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    fontSize: '14px',
-    textAlign: 'center',
-    opacity: 1,
-    appearance: 'none',
-    WebkitAppearance: 'none',
-  },
-
-  empty: {
-    marginTop: '50px',
-    textAlign: 'center',
-    color: '#888888',
-  },
-
-  emptyIcon: {
-    fontSize: '55px',
-    marginBottom: '10px',
-  },
-
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 9999,
-    background: 'rgba(0,0,0,0.88)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '15px',
-    boxSizing: 'border-box',
-  },
-
-  modalContent: {
-    width: '100%',
-    maxWidth: '1000px',
-    maxHeight: '95vh',
-    background: '#111111',
-    borderRadius: '16px',
-    overflow: 'auto',
-    position: 'relative',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-  },
-
-  mobileModalContent: {
-    maxHeight: '96vh',
-    borderRadius: '12px',
-  },
-
-  modalCloseButton: {
-    position: 'sticky',
-    top: '10px',
-    float: 'right',
-    zIndex: 10,
-    margin: '10px 10px 0 0',
-    border: 'none',
-    background: 'rgba(255,255,255,0.92)',
-    color: '#222222',
-    padding: '9px 12px',
-    borderRadius: '20px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    fontSize: '13px',
-  },
-
-  modalMediaArea: {
-    clear: 'both',
-    width: '100%',
-    minHeight: '200px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    background: '#000000',
-  },
-
-  modalImage: {
-    display: 'block',
-    maxWidth: '100%',
-    maxHeight: '80vh',
-    width: 'auto',
-    height: 'auto',
-    objectFit: 'contain',
-  },
-
-  modalVideo: {
-    display: 'block',
-    width: '100%',
-    height: 'auto',
-    maxWidth: '100%',
-    maxHeight: '80vh',
-    objectFit: 'contain',
-    background: '#000000',
-  },
-
-  modalInfo: {
-    background: '#ffffff',
-    padding: '15px 18px 18px',
-    color: '#222222',
-  },
-
-  modalInfoTop: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '15px',
-  },
-
-  modalDate: {
-    color: '#888888',
-    fontSize: '12px',
-    marginTop: '7px',
-  },
-
-  modalMemo: {
-    margin: '12px 0 0',
-    lineHeight: 1.6,
-    whiteSpace: 'pre-wrap',
-  },
+  page: { minHeight: '100svh', padding: '18px 12px 100px', boxSizing: 'border-box', background: '#f8f5fa', color: '#272332' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: '430px', margin: '0 auto 14px' },
+  title: { margin: 0, fontSize: '27px' },
+  headerButton: { width: '42px', height: '42px', border: '1px solid #eeeaf1', borderRadius: '14px', background: '#fff', fontSize: '25px', color: '#7c3aed', cursor: 'pointer' },
+  message: { maxWidth: '430px', margin: '8px auto', color: '#7c3aed', fontSize: '13px', textAlign: 'center' },
+  feed: { maxWidth: '430px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' },
+  empty: { padding: '70px 20px', borderRadius: '24px', background: '#fff', color: '#8d8798', textAlign: 'center' },
+  shortCard: { borderRadius: '24px', overflow: 'hidden', background: '#fff', boxShadow: '0 8px 28px rgba(56,38,68,.09)', scrollSnapAlign: 'start' },
+  mediaArea: { position: 'relative', width: '100%', aspectRatio: '9 / 14', maxHeight: '72svh', overflow: 'hidden', background: '#17141b' },
+  media: { width: '100%', height: '100%', display: 'block', objectFit: 'contain', background: '#17141b' },
+  mediaError: { height: '100%', display: 'grid', placeItems: 'center', color: '#fff' },
+  sideActions: { position: 'absolute', right: '12px', bottom: '82px', display: 'flex', flexDirection: 'column', gap: '13px' },
+  actionButton: { width: '48px', minHeight: '54px', border: '1px solid rgba(255,255,255,.35)', borderRadius: '18px', background: 'rgba(30,24,35,.36)', color: '#fff', backdropFilter: 'blur(8px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
+  caption: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: '45px 72px 16px 16px', color: '#fff', background: 'linear-gradient(transparent,rgba(0,0,0,.78))' },
+  deleteButton: { width: '100%', padding: '11px', border: 0, background: '#fff', color: '#c64b70', cursor: 'pointer' },
+  overlay: { position: 'fixed', zIndex: 3000, inset: 0, padding: '20px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', background: 'rgba(27,20,31,.5)' },
+  sheet: { width: 'min(100%,430px)', padding: '12px 18px 22px', borderRadius: '26px 26px 18px 18px', background: '#fff' },
+  commentSheet: { width: 'min(100%,430px)', maxHeight: '72svh', padding: '12px 18px 22px', borderRadius: '26px 26px 18px 18px', background: '#fff' },
+  sheetHandle: { width: '40px', height: '4px', margin: '0 auto 15px', borderRadius: '4px', background: '#ded7e3' },
+  memoInput: { width: '100%', minHeight: '70px', padding: '12px', marginBottom: '10px', boxSizing: 'border-box', border: '1px solid #e7dfeb', borderRadius: '13px', fontSize: '15px', resize: 'none' },
+  uploadChoice: { width: '100%', padding: '14px', marginTop: '8px', border: 0, borderRadius: '13px', background: '#f4edfc', color: '#6e36b3', fontWeight: 800, cursor: 'pointer' },
+  guide: { color: '#98909e', fontSize: '11px', textAlign: 'center' },
+  cancelButton: { width: '100%', padding: '12px', border: 0, borderRadius: '12px', background: '#f3f1f4', color: '#69636d', cursor: 'pointer' },
+  comments: { maxHeight: '38svh', overflowY: 'auto', padding: '8px 2px', color: '#655e6c' },
+  commentForm: { display: 'flex', gap: '8px', margin: '10px 0' },
 }
 
 export default FamilyPhotos

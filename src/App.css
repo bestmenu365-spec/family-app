@@ -85,9 +85,10 @@
 .more-card button:last-child { border-bottom: 0; }.more-card button span { color: var(--purple); font-size: 18px; }.more-card button b { margin-left: auto; color: #bcb5c2; font-size: 22px; }
 .logout-button { width: 100%; margin-top: 26px; padding: 15px; border: 0; border-radius: 15px; background: var(--pink-soft); color: #d84578; font-weight: 800; cursor: pointer; }
 
-.bottom-nav { position: fixed; z-index: 1000; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 430px; height: calc(72px + env(safe-area-inset-bottom)); padding: 8px 8px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(5, 1fr); background: rgba(255,255,255,.95); border-top: 1px solid var(--line); backdrop-filter: blur(15px); }
+.bottom-nav { position: fixed; z-index: 1000; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 430px; height: calc(72px + env(safe-area-inset-bottom)); padding: 8px 6px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(6, 1fr); background: rgba(255,255,255,.95); border-top: 1px solid var(--line); backdrop-filter: blur(15px); }
 .bottom-nav__item { border: 0; background: transparent; color: #aaa3af; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 10px; font-weight: 700; cursor: pointer; }
 .bottom-nav__icon { font-size: 23px; line-height: 1; }.bottom-nav__item.is-active { color: var(--purple); }.bottom-nav__item.is-active .bottom-nav__icon { transform: translateY(-1px); }
+.bottom-nav__item--upload .bottom-nav__icon { width: 46px; height: 34px; display: grid; place-items: center; border-radius: 12px; background: linear-gradient(135deg,var(--pink),var(--purple)); color: #fff; font-size: 26px; box-shadow: 0 7px 18px rgba(124,58,237,.25); }
 
 .login-page { min-height: 100svh; padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); display: flex; align-items: flex-end; justify-content: center; background-color: #fbf7f0; background-size: cover; background-position: center; background-repeat: no-repeat; }
 .login-card { width: min(100%, 330px); padding: 18px; border: 1px solid rgba(255,255,255,.82); border-radius: 21px; background: rgba(255,255,255,.9); box-shadow: 0 12px 38px rgba(46,28,53,.18); backdrop-filter: blur(12px); text-align: center; }

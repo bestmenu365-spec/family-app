@@ -16,7 +16,8 @@ const { data: loginBackgroundData } = supabase.storage
 const tabs = [
   { id: 'home', label: '홈', icon: '⌂' },
   { id: 'family', label: '가족', icon: '♙' },
-  { id: 'memories', label: '추억', icon: '▧' },
+  { id: 'memories', label: 'Shorts', icon: '▶' },
+  { id: 'upload', label: '', icon: '＋' },
   { id: 'events', label: '일정', icon: '□' },
   { id: 'more', label: '더보기', icon: '☰' },
 ]
@@ -38,7 +39,7 @@ const DEFAULT_AVATAR_STYLE = {
   hairStyle: 'basic', hair: '#302823', expression: 'neutral', body: 'normal', outfit: '#6f5aa8', accessory: 'none', bag: 'none', shoes: '#34303a', bracelet: 'none',
 }
 
-function BottomNav({ page, onChange }) {
+function BottomNav({ page, onChange, onUpload }) {
   const activeTab = page === 'profile' || page === 'location' ? 'family' : page
 
   return (
@@ -47,8 +48,8 @@ function BottomNav({ page, onChange }) {
         <button
           key={tab.id}
           type="button"
-          className={activeTab === tab.id ? 'bottom-nav__item is-active' : 'bottom-nav__item'}
-          onClick={() => onChange(tab.id)}
+          className={`${activeTab === tab.id ? 'bottom-nav__item is-active' : 'bottom-nav__item'}${tab.id === 'upload' ? ' bottom-nav__item--upload' : ''}`}
+          onClick={() => tab.id === 'upload' ? onUpload() : onChange(tab.id)}
         >
           <span className="bottom-nav__icon" aria-hidden="true">{tab.icon}</span>
           <span>{tab.label}</span>
@@ -120,7 +121,7 @@ function Home({ profile, members, events, photos, onNavigate, onMember }) {
 
       <section className="section-block">
         <div className="section-heading">
-          <h2>최근 추억</h2>
+          <h2>최근 Shorts</h2>
           <button type="button" onClick={() => onNavigate('memories')}>더보기 ›</button>
         </div>
         <div className="memory-preview">
@@ -128,7 +129,7 @@ function Home({ profile, members, events, photos, onNavigate, onMember }) {
             <div key={photo.id} className="memory-tile">
               {photo.signedUrl ? <img src={photo.signedUrl} alt={photo.memo || '가족 추억'} /> : <span>📷</span>}
             </div>
-          )) : <div className="empty-preview">첫 가족 추억을 남겨보세요 📷</div>}
+          )) : <div className="empty-preview">첫 가족 Shorts를 올려보세요 🎬</div>}
         </div>
       </section>
     </main>
@@ -222,6 +223,7 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState('')
+  const [uploadRequestKey, setUploadRequestKey] = useState(0)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true) })
@@ -270,6 +272,7 @@ function App() {
 
   const openMember = (member) => { setSelectedMember(member); setPage('profile') }
   const navigate = (nextPage) => { setSelectedMember(null); setPage(nextPage) }
+  const openShortsUploader = () => { setSelectedMember(null); setPage('memories'); setUploadRequestKey((key) => key + 1) }
 
   if (!authReady) return <div className="app-loading"><span>우리 가족</span><small>불러오는 중...</small></div>
   if (!session) return <Login {...{ email, password, message }} onEmail={setEmail} onPassword={setPassword} onSubmit={handleLogin} />
@@ -277,13 +280,13 @@ function App() {
   let content
   if (page === 'family') content = <FamilyList members={sortedMembers} onMember={openMember} />
   else if (page === 'profile') content = <FamilyProfile member={selectedMember} onBack={() => setPage('family')} onLocation={() => setPage('location')} />
-  else if (page === 'memories') content = <FamilyPhotos session={session} onBack={() => setPage('home')} />
+  else if (page === 'memories') content = <FamilyPhotos session={session} onBack={() => setPage('home')} uploadRequestKey={uploadRequestKey} />
   else if (page === 'events') content = <FamilyEvents session={session} onBack={() => setPage('home')} />
   else if (page === 'location') content = <FamilyLocation session={session} onBack={() => setPage('family')} />
   else if (page === 'more') content = <More onLocation={() => setPage('location')} onLogout={handleLogout} />
   else content = <Home profile={profile} members={sortedMembers} events={events} photos={recentPhotos} onNavigate={navigate} onMember={openMember} />
 
-  return <div className="mobile-app">{content}<BottomNav page={page} onChange={navigate} /></div>
+  return <div className="mobile-app">{content}<BottomNav page={page} onChange={navigate} onUpload={openShortsUploader} /></div>
 }
 
 export default App
